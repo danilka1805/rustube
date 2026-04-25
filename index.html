@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RusTube</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <nav class="navbar">
+    <a href="index.html" class="logo">&#9654; Rus<span>Tube</span></a>
+    <div class="search-wrap">
+      <input type="text" id="si" placeholder="Search...">
+      <button id="sb">&#128269;</button>
+    </div>
+    <div class="nav-right">
+      <a href="history.html" class="icon-btn" title="History">
+        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+      </a>
+      <button id="authBtn"></button>
+    </div>
+  </nav>
+</header>
+<div class="cats" id="cats"></div>
+<main>
+  <p class="section-title" id="secTitle">All videos</p>
+  <div class="video-grid" id="grid"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script>
+var currentCat = 'All', currentSearch = '';
+function sb(){ return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function ago(d){var s=(Date.now()-new Date(d))/1000;if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' h ago';return new Date(d).toLocaleDateString('ru-RU');}
+function dur(s){if(!s)return'';var m=Math.floor(s/60),sc=String(s%60).padStart(2,'0');return m>=60?Math.floor(m/60)+':'+String(m%60).padStart(2,'0')+':'+sc:m+':'+sc;}
+
+// Load ads from Supabase
+var _ads = [];
+async function loadAds() {
+  try {
+    var r = await sb().from('ads').select('*').eq('active', true);
+    _ads = r.data || [];
+  } catch(e) { _ads = []; }
+}
+
+function adCard() {
+  // Find active ad
+  var ad = _ads.find(function(a){ return a.active; });
+  if (!ad || ad.type === 'placeholder') {
+    return '<div class="ad-card"><div class="ad-label">Ad</div>'
+      + '<div class="ad-placeholder">'
+      + '<div class="ad-placeholder-icon">&#128227;</div>'
+      + '<div class="ad-placeholder-title">Your ad could be here</div>'
+      + '<div class="ad-placeholder-sub">Contact: daniil.im322@gmail.com</div>'
+      + '</div></div>';
+  }
+  var inner = ad.image_url
+    ? '<img src="'+esc(ad.image_url)+'" alt="'+esc(ad.label||'Ad')+'" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">'
+    : '<div class="ad-placeholder"><div class="ad-placeholder-title">'+esc(ad.label||'Ad')+'</div></div>';
+  return '<div class="ad-card">'
+    + '<div class="ad-label">Ad</div>'
+    + (ad.click_url ? '<a href="'+esc(ad.click_url)+'" target="_blank" rel="noopener">'+inner+'</a>' : inner)
+    + '</div>';
+}
+
+function skeletons(){document.getElementById('grid').innerHTML=Array(8).fill('<div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-line" style="margin-top:12px"></div><div class="skeleton skeleton-line short"></div></div>').join('');}
+
+function channelAv(p){
+  if(!p) return '<div class="card-channel-av">?</div>';
+  if(p.avatar_url) return '<img class="card-channel-av" src="'+esc(p.avatar_url)+'" alt="">';
+  return '<div class="card-channel-av">'+(p.username||'?')[0].toUpperCase()+'</div>';
+}
+
+function card(v){
+  var th=v.thumbnail_url?'<img class="card-thumb" src="'+esc(v.thumbnail_url)+'" alt="" loading="lazy">':'<div class="card-thumb-placeholder">&#9654;</div>';
+  var ch=v.profiles?'<div class="card-channel-row">'+channelAv(v.profiles)+'<span class="card-channel-name">'+esc(v.profiles.username||'Channel')+'</span></div>':'';
+  var cat=v.category&&v.category!=='Other'?'<span class="card-cat">'+esc(v.category)+'</span>':'';
+  return '<a class="video-card" href="watch.html?v='+esc(v.id)+'">'+th
+    +'<div class="card-info">'+ch
+    +'<div class="card-title">'+esc(v.title)+'</div>'
+    +'<div class="card-meta"><span>'+(v.views||0)+' views</span>'+(v.duration?'<span>'+dur(v.duration)+'</span>':'')+'<span>'+ago(v.created_at)+'</span></div>'
+    +cat+'</div></a>';
+}
+
+async function load(search, cat){
+  skeletons();
+  currentSearch = search||'';
+  currentCat = cat||'All';
+  document.getElementById('secTitle').textContent = search ? 'Search: "'+search+'"' : (cat&&cat!=='All' ? cat : 'All videos');
+  updateCatBtns();
+  try{
+    var vs = search ? await DB.getVideos(search, '') : (cat&&cat!=='All' ? await DB.getVideos('',cat) : await DB.getRecommended());
+    var g=document.getElementById('grid');
+    if(!vs.length){
+      g.innerHTML='<div class="empty-state"><div class="icon">&#127909;</div><h2>'+(search?'Nothing found':'No videos yet')+'</h2><p style="margin:8px 0 18px">'+(search?'Try another query':'Be the first!')+'</p><a href="upload.html" class="btn btn-primary">Upload video</a></div>';
+    } else {
+      // Insert ad every 3rd slot
+      var items = [];
+      var adInterval = 3;
+      for (var i=0; i<vs.length; i++) {
+        items.push(card(vs[i]));
+        if ((i+1) % adInterval === 0) items.push(adCard());
+      }
+      g.innerHTML = items.join('');
+    }
+  }catch(e){
+    document.getElementById('grid').innerHTML='<div class="empty-state"><div class="icon">&#9888;</div><h2>Error</h2><p>'+esc(e.message)+'</p></div>';
+  }
+}
+
+function updateCatBtns(){
+  document.querySelectorAll('.cat-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.cat===currentCat);
+  });
+}
+
+// build category buttons
+var catsEl = document.getElementById('cats');
+CATEGORIES.forEach(function(c){
+  var b=document.createElement('button');
+  b.className='cat-btn'+(c==='All'?' active':'');
+  b.dataset.cat=c;
+  b.textContent=c;
+  b.onclick=function(){load('',c);};
+  catsEl.appendChild(b);
+});
+
+var t;
+document.getElementById('si').addEventListener('input',function(){
+  clearTimeout(t);t=setTimeout(function(){load(document.getElementById('si').value.trim(),'All');},400);
+});
+document.getElementById('sb').addEventListener('click',function(){load(document.getElementById('si').value.trim(),'All');});
+
+Auth.renderNavUser(document.querySelector('.navbar'));
+loadAds().then(function(){ load('','All'); });
+</script>
+</body>
+</html>

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RusTube</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+.player-outer{width:100%;background:#000;position:relative;overflow:hidden;aspect-ratio:16/9;cursor:pointer}
+@media(max-width:860px){.player-outer{border-radius:0}}
+@media(min-width:861px){.player-outer{border-radius:var(--radius)}}
+.player-outer video{width:100%;height:100%;display:block;object-fit:contain}
+.ctrl{position:absolute;bottom:0;left:0;right:0;padding:0 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.78));opacity:0;transition:opacity .25s;pointer-events:none}
+.player-outer:hover .ctrl,.player-outer.show-ctrl .ctrl,.player-outer.paused .ctrl{opacity:1;pointer-events:auto}
+.progress-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.prog-wrap{flex:1;height:4px;background:rgba(255,255,255,.25);border-radius:2px;cursor:pointer;position:relative;transition:height .1s}
+.prog-wrap:hover{height:6px}
+.prog-buf{position:absolute;left:0;top:0;height:100%;background:rgba(255,255,255,.3);border-radius:2px;pointer-events:none}
+.prog-fill{position:absolute;left:0;top:0;height:100%;background:var(--accent);border-radius:2px;pointer-events:none}
+.prog-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:13px;height:13px;background:#fff;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .15s}
+.prog-wrap:hover .prog-thumb{opacity:1}
+.time-txt{font-size:.69rem;color:#fff;white-space:nowrap;min-width:74px;text-align:right}
+.pbtn-row{display:flex;align-items:center;gap:3px}
+.pbtn{background:none;border:none;color:#fff;cursor:pointer;padding:4px 7px;font-size:1.05rem;opacity:.9;line-height:1}
+.pbtn:hover{opacity:1}
+.vol-wrap{display:flex;align-items:center;gap:4px}
+.vol-slider{width:54px;height:3px;accent-color:var(--accent);cursor:pointer}
+.pspacer{flex:1}
+.big-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.big-play-icon{width:62px;height:62px;background:rgba(0,0,0,.55);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.8rem;transition:opacity .15s}
+.player-outer:not(.paused) .big-play-icon{opacity:0}
+.player-outer.paused .big-play-icon{opacity:1}
+.pspin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.pspin .spin{width:38px;height:38px;border:4px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
+.pspin.hide{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <nav class="navbar">
+    <a href="index.html" class="logo">&#9654; Rus<span>Tube</span></a>
+    <div class="search-wrap">
+      <input type="text" id="si" placeholder="Search...">
+      <button onclick="location.href='index.html?q='+encodeURIComponent(document.getElementById('si').value)">&#128269;</button>
+    </div>
+    <div class="nav-right">
+      <a href="history.html" class="icon-btn" title="History">
+        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+      </a>
+      <a href="upload.html" class="btn btn-primary btn-sm">+ Upload</a>
+      <button id="authBtn"></button>
+    </div>
+  </nav>
+</header>
+
+<div class="watch-layout">
+  <div>
+    <div class="player-outer paused" id="po">
+      <video id="vp" preload="metadata"></video>
+      <div class="pspin" id="pspin"><div class="spin"></div></div>
+      <div class="big-play"><div class="big-play-icon">&#9654;</div></div>
+      <div class="ctrl">
+        <div class="progress-row">
+          <div class="prog-wrap" id="pw">
+            <div class="prog-buf" id="pb" style="width:0"></div>
+            <div class="prog-fill" id="pf" style="width:0"></div>
+            <div class="prog-thumb" id="pt" style="left:0"></div>
+          </div>
+          <span class="time-txt" id="tt">0:00 / 0:00</span>
+        </div>
+        <div class="pbtn-row">
+          <button class="pbtn" id="playBtn" onclick="togglePlay()">&#9654;</button>
+          <div class="vol-wrap">
+            <button class="pbtn" id="muteBtn" onclick="toggleMute()">&#128266;</button>
+            <input class="vol-slider" type="range" id="volS" min="0" max="1" step="0.05" value="1" oninput="setVol(this.value)">
+          </div>
+          <span class="pspacer"></span>
+          <button class="pbtn" onclick="toggleFS()" title="Fullscreen">&#x26F6;</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="watch-main">
+      <h1 class="video-title" id="vTitle">Loading...</h1>
+      <div class="action-btns">
+        <button class="like-btn" id="likeBtn" onclick="doLike()">&#9825; <span id="likeCnt">0</span></button>
+        <button class="btn btn-danger btn-sm" id="deleteBtn" style="display:none" onclick="doDelete()">Delete</button>
+      </div>
+      <div class="video-meta">
+        <span id="vViews"></span>
+        <span id="vDur"></span>
+        <span id="vDate"></span>
+        <span id="vCat" style="background:var(--bg3);border-radius:4px;padding:2px 8px;font-size:.75rem"></span>
+      </div>
+      <div class="channel-row" id="chRow" style="display:none">
+        <div class="channel-av" id="chAv"></div>
+        <div class="channel-name" id="chName"></div>
+        <button id="subBtn" style="display:none;margin-left:10px"></button>
+      </div>
+      <p class="video-desc" id="vDesc"></p>
+
+      <div class="comments-section">
+        <h3>Comments <span id="cmtCnt" style="color:var(--text2);font-weight:400"></span></h3>
+        <div id="cmtFormWrap"></div>
+        <div id="cmtList"></div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="sidebar">
+    <h3>More videos</h3>
+    <div id="related"></div>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script>
+var vp=document.getElementById('vp'),po=document.getElementById('po');
+var curVid=null,curUser=null,ctrlT=null;
+
+function qp(k){return new URLSearchParams(location.search).get(k);}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function ago(d){var s=(Date.now()-new Date(d))/1000;if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' h ago';return new Date(d).toLocaleDateString('ru-RU');}
+function fmtd(s){if(!s)return'0:00';var m=Math.floor(s/60),sc=String(Math.floor(s%60)).padStart(2,'0');return m>=60?Math.floor(m/60)+':'+String(m%60).padStart(2,'0')+':'+sc:m+':'+sc;}
+
+function togglePlay(){vp.paused?vp.play():vp.pause();}
+function toggleMute(){vp.muted=!vp.muted;document.getElementById('muteBtn').innerHTML=vp.muted?'&#128263;':'&#128266;';}
+function setVol(v){vp.volume=v;vp.muted=v==0;document.getElementById('muteBtn').innerHTML=v==0?'&#128263;':'&#128266;';}
+function toggleFS(){document.fullscreenElement?document.exitFullscreen():po.requestFullscreen&&po.requestFullscreen();}
+
+vp.addEventListener('play',function(){po.classList.remove('paused');document.getElementById('playBtn').innerHTML='&#9646;&#9646;';document.getElementById('pspin').classList.add('hide');});
+vp.addEventListener('pause',function(){po.classList.add('paused');document.getElementById('playBtn').innerHTML='&#9654;';});
+vp.addEventListener('waiting',function(){document.getElementById('pspin').classList.remove('hide');});
+vp.addEventListener('canplay',function(){document.getElementById('pspin').classList.add('hide');});
+vp.addEventListener('timeupdate',function(){
+  if(!vp.duration)return;
+  var p=(vp.currentTime/vp.duration)*100;
+  document.getElementById('pf').style.width=p+'%';
+  document.getElementById('pt').style.left=p+'%';
+  document.getElementById('tt').textContent=fmtd(vp.currentTime)+' / '+fmtd(vp.duration);
+});
+vp.addEventListener('progress',function(){
+  if(vp.duration&&vp.buffered.length)
+    document.getElementById('pb').style.width=(vp.buffered.end(vp.buffered.length-1)/vp.duration*100)+'%';
+});
+document.getElementById('pw').addEventListener('click',function(e){
+  var r=this.getBoundingClientRect();vp.currentTime=(e.clientX-r.left)/r.width*vp.duration;
+});
+po.addEventListener('click',function(e){if(e.target.closest('.ctrl'))return;togglePlay();showCtrl();});
+po.addEventListener('touchstart',function(){showCtrl();},{passive:true});
+function showCtrl(){po.classList.add('show-ctrl');clearTimeout(ctrlT);ctrlT=setTimeout(function(){po.classList.remove('show-ctrl');},3000);}
+
+var vid=qp('v');
+if(!vid)location.href='index.html';
+
+async function init(){
+  var v;
+  try{v=await DB.getVideo(vid);}
+  catch(e){document.getElementById('pspin').innerHTML='<p style="color:#f88;text-align:center">Video not found<br><br><a href="index.html" class="btn btn-ghost">Back</a></p>';return;}
+  curVid=v;
+  try{curUser=await Auth.getUser();}catch(e){curUser=null;}
+
+  document.title=v.title+' - RusTube';
+  document.getElementById('vTitle').textContent=v.title;
+  document.getElementById('vViews').textContent=(v.views||0)+' views';
+  document.getElementById('vDate').textContent=ago(v.created_at);
+  document.getElementById('vDesc').textContent=v.description||'';
+  if(v.duration)document.getElementById('vDur').textContent=fmtd(v.duration);
+  if(v.category&&v.category!=='Other')document.getElementById('vCat').textContent=v.category;
+
+  // channel row
+  if(v.profiles&&v.user_id){
+    document.getElementById('chRow').style.display='flex';
+    var av=document.getElementById('chAv');
+    if(v.profiles.avatar_url){var im=document.createElement('img');im.src=v.profiles.avatar_url;im.style='width:36px;height:36px;border-radius:50%;object-fit:cover';av.appendChild(im);}
+    else{av.textContent=(v.profiles.username||'?')[0].toUpperCase();}
+    document.getElementById('chName').textContent=v.profiles.username||'Channel';
+
+    // subscribe button
+    if(curUser && curUser.id !== v.user_id){
+      var subBtn = document.getElementById('subBtn');
+      DB.isSubscribed(curUser.id, v.user_id).then(function(subbed){
+        subBtn.textContent = subbed ? 'Unsubscribe' : 'Subscribe';
+        subBtn.className = subbed ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
+        subBtn.style.display = 'inline-flex';
+      });
+      subBtn.onclick = async function(){
+        var subbed = await DB.toggleSubscription(curUser.id, v.user_id);
+        subBtn.textContent = subbed ? 'Unsubscribe' : 'Subscribe';
+        subBtn.className = subbed ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
+      };
+    }
+  }
+
+  if(curUser&&v.user_id&&curUser.id===v.user_id)document.getElementById('deleteBtn').style.display='inline-flex';
+
+  var url=v.video_url||v.magnet_link||'';
+  if(url&&url.startsWith('http')){
+    vp.src=url;vp.load();
+    // track watch percentage every 5 seconds
+    DB.addToHistory(v, 0);
+    var trackInterval = setInterval(function(){
+      if(vp.duration) {
+        var pct = Math.round(vp.currentTime / vp.duration * 100);
+        DB.updateWatchPct(vid, pct);
+      }
+    }, 5000);
+    vp.addEventListener('ended', function(){
+      DB.updateWatchPct(vid, 100);
+      clearInterval(trackInterval);
+    });
+  }else{
+    document.getElementById('pspin').innerHTML='<p style="color:var(--text2)">Video unavailable</p>';
+  }
+
+  renderCommentForm();loadLikes();loadCmts();loadRelated();
+}
+
+function renderCommentForm(){
+  var w=document.getElementById('cmtFormWrap');
+  if(curUser){
+    var name=(curUser.user_metadata&&curUser.user_metadata.full_name)?curUser.user_metadata.full_name:'User';
+    var av=(curUser.user_metadata&&curUser.user_metadata.avatar_url)
+      ?'<img src="'+curUser.user_metadata.avatar_url+'" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">'
+      :'<div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">'+name[0].toUpperCase()+'</div>';
+    w.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:18px">'+av+'<div style="flex:1"><textarea id="cmtText" placeholder="Write a comment..." maxlength="1000" style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;color:var(--text);font-size:.85rem;outline:none;font-family:inherit;resize:vertical;min-height:58px"></textarea><div style="margin-top:5px"><button class="btn btn-primary btn-sm" id="cmtBtn" onclick="postCmt()">Send</button></div></div></div>';
+    document.getElementById('cmtText').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();postCmt();}});
+  }else{
+    w.innerHTML='<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:18px;text-align:center;font-size:.86rem;color:var(--text2)">Sign in to comment &nbsp;<button class="btn btn-primary btn-sm" onclick="Auth.signInGoogle()">Sign in with Google</button></div>';
+  }
+}
+
+async function doLike(){
+  if(!curUser){Auth.signInGoogle();return;}
+  var b=document.getElementById('likeBtn');b.style.pointerEvents='none';
+  try{var liked=await DB.toggleLike(vid);if(liked===null)return;b.classList.toggle('liked',liked);var n=parseInt(document.getElementById('likeCnt').textContent)||0;document.getElementById('likeCnt').textContent=liked?n+1:Math.max(0,n-1);}catch(e){}
+  b.style.pointerEvents='';
+}
+
+async function doDelete(){
+  if(!confirm('Delete this video?'))return;
+  try{await DB.deleteVideo(vid,curVid.storage_key);location.href='index.html';}catch(e){alert('Error: '+e.message);}
+}
+
+async function loadLikes(){try{var r=await DB.getLikes(vid);document.getElementById('likeCnt').textContent=r.count;document.getElementById('likeBtn').classList.toggle('liked',r.liked);}catch(e){}}
+
+async function loadCmts(){
+  try{
+    var cs=await DB.getComments(vid);
+    var list=document.getElementById('cmtList');
+    document.getElementById('cmtCnt').textContent=cs.length?'('+cs.length+')':'';
+    if(!cs.length){list.innerHTML='<div class="no-comments">No comments yet</div>';return;}
+    list.innerHTML=cs.map(function(c){
+      var l=(c.author_name||'A')[0].toUpperCase();
+      var h=[].reduce.call(c.author_name||'A',function(a,ch){return a+ch.charCodeAt(0);},0)%360;
+      return '<div class="comment"><div class="comment-avatar" style="background:hsl('+h+',40%,28%);color:hsl('+h+',70%,72%)">'+l+'</div><div><div class="comment-author">'+esc(c.author_name||'Anon')+'<span class="comment-date">'+ago(c.created_at)+'</span></div><div class="comment-text">'+esc(c.body||c.text||'')+'</div></div></div>';
+    }).join('');
+  }catch(e){}
+}
+
+async function postCmt(){
+  var b=document.getElementById('cmtBtn'),text=document.getElementById('cmtText').value.trim();
+  if(!text||!curUser)return;
+  b.disabled=true;b.textContent='...';
+  try{await DB.addComment(vid,text,curUser);document.getElementById('cmtText').value='';await loadCmts();}
+  catch(e){alert('Error: '+e.message);}
+  b.disabled=false;b.textContent='Send';
+}
+
+async function loadRelated(){
+  var el=document.getElementById('related');
+  try{
+    var vs=await DB.getVideos('',curVid&&curVid.category&&curVid.category!=='Other'?curVid.category:'');
+    var oth=vs.filter(function(v){return v.id!==vid;}).slice(0,10);
+    el.innerHTML=oth.map(function(v){
+      var th=v.thumbnail_url?'<img class="card-thumb" src="'+esc(v.thumbnail_url)+'" alt="" loading="lazy">':'<div class="card-thumb-placeholder">&#9654;</div>';
+      var ch=v.profiles?'<div style="font-size:.72rem;color:var(--text2);margin-bottom:2px">'+esc(v.profiles.username||'')+'</div>':'';
+      return '<a class="video-card" href="watch.html?v='+esc(v.id)+'">'+th+'<div class="card-info">'+ch+'<div class="card-title">'+esc(v.title)+'</div><div class="card-meta"><span>'+(v.views||0)+' views</span><span>'+ago(v.created_at)+'</span></div></div></a>';
+    }).join('')||'<p style="color:#666;font-size:.8rem">No other videos</p>';
+  }catch(e){}
+}
+
+Auth.renderNavUser(document.querySelector('.navbar'));
+init();
+</script>
+</body>
+</html>

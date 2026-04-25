@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upload - RusTube</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <nav class="navbar">
+    <a href="index.html" class="logo">&#9654; Rus<span>Tube</span></a>
+    <div class="search-wrap"></div>
+    <div class="nav-right">
+      <a href="index.html" class="btn btn-ghost btn-sm">&larr; Back</a>
+      <button id="authBtn"></button>
+    </div>
+  </nav>
+</header>
+<main>
+<div class="page-wrap">
+  <h1>Upload video</h1>
+
+  <div id="noAuthWall" style="display:none" class="sign-in-wall">
+    <div class="icon">&#128274;</div>
+    <h2>Sign in required</h2>
+    <p>You need a Google account to upload videos.</p>
+    <button class="btn btn-primary" onclick="Auth.signInGoogle()">Sign in with Google</button>
+  </div>
+
+  <div id="uploadForm">
+    <div class="upload-zone" id="dropZone">
+      <div class="icon">&#127909;</div>
+      <p><strong>Drag video here</strong> or click to choose</p>
+      <p style="margin-top:6px;font-size:.74rem;color:#666">MP4, WebM, MKV</p>
+      <input type="file" id="fileInput" accept="video/*" style="display:none">
+    </div>
+
+    <div id="thumbGroup" style="display:none">
+      <div class="form-group">
+        <label>Cover image</label>
+        <div class="thumb-row">
+          <div class="thumb-preview" id="thumbBox">
+            <img id="thumbImg" src="" alt="" style="display:none">
+            <span id="thumbEmpty" style="font-size:.78rem;color:var(--text2)">No image</span>
+          </div>
+          <div class="thumb-options">
+            <button class="thumb-option-btn active" id="btnAuto" onclick="setThumbMode('auto')">Auto from video</button>
+            <button class="thumb-option-btn" id="btnCustom" onclick="setThumbMode('custom')">Upload my image</button>
+            <input type="file" id="customThumbInput" accept="image/*" style="display:none">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Title *</label>
+      <input type="text" id="titleInput" placeholder="Enter title" maxlength="150">
+    </div>
+    <div class="form-group">
+      <label>Category</label>
+      <select id="catInput"></select>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="descInput" placeholder="Optional"></textarea>
+    </div>
+
+    <div class="progress-wrap" id="progWrap">
+      <div class="progress-label"><span id="progLabel">Uploading...</span><span id="progPct">0%</span></div>
+      <div class="progress-bar-bg"><div class="progress-bar" id="progBar"></div></div>
+    </div>
+    <div class="status-box" id="statusBox"></div>
+    <button class="btn btn-primary" id="uploadBtn" disabled style="width:100%;padding:12px;font-size:.95rem">Choose a file</button>
+  </div>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script src="js/upload.js"></script>
+<script>
+var dz=document.getElementById('dropZone'),fi=document.getElementById('fileInput'),btn=document.getElementById('uploadBtn');
+var videoFile=null,autoBlob=null,customBlob=null,thumbMode='auto',videoDur=0;
+
+// fill categories (skip 'All')
+var catSel=document.getElementById('catInput');
+CATEGORIES.filter(function(c){return c!=='All';}).forEach(function(c){
+  var o=document.createElement('option');o.value=c;o.textContent=c;catSel.appendChild(o);
+});
+
+function sz(b){if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';if(b>1048576)return(b/1048576).toFixed(1)+' MB';return Math.round(b/1024)+' KB';}
+function prog(l,p){document.getElementById('progLabel').textContent=l;document.getElementById('progPct').textContent=p+'%';document.getElementById('progBar').style.width=p+'%';}
+function status(m,t){var el=document.getElementById('statusBox');el.textContent=m;el.className='status-box show'+(t?' '+t:'');}
+function showThumb(src){document.getElementById('thumbImg').src=src;document.getElementById('thumbImg').style.display='block';document.getElementById('thumbEmpty').style.display='none';}
+
+// check auth
+Auth.getUser().then(function(user){
+  if(!user){document.getElementById('noAuthWall').style.display='block';document.getElementById('uploadForm').style.display='none';}
+});
+
+dz.addEventListener('click',function(){fi.click();});
+fi.addEventListener('change',function(){if(fi.files[0])pick(fi.files[0]);});
+dz.addEventListener('dragover',function(e){e.preventDefault();dz.classList.add('drag-over');});
+dz.addEventListener('dragleave',function(){dz.classList.remove('drag-over');});
+dz.addEventListener('drop',function(e){e.preventDefault();dz.classList.remove('drag-over');pick(e.dataTransfer.files[0]);});
+
+function pick(f){
+  if(!f||!f.type.startsWith('video/')){status('Please choose a video file','error');return;}
+  videoFile=f;
+  dz.querySelector('p').innerHTML='<strong>'+f.name+'</strong> ('+sz(f.size)+')';
+  var t=document.getElementById('titleInput');
+  if(!t.value)t.value=f.name.replace(/\.[^.]+$/,'');
+  btn.disabled=false;btn.textContent='Publish';
+  document.getElementById('thumbGroup').style.display='block';
+  makeAutoThumb(f);
+}
+
+function makeAutoThumb(f){
+  var v=document.createElement('video');
+  v.muted=true;v.preload='metadata';v.src=URL.createObjectURL(f);
+  v.addEventListener('loadedmetadata',function(){videoDur=Math.floor(v.duration);v.currentTime=Math.min(5,v.duration*0.1);});
+  v.addEventListener('seeked',function(){
+    var c=document.createElement('canvas');c.width=640;c.height=360;
+    var ctx=c.getContext('2d'),sc=Math.min(640/v.videoWidth,360/v.videoHeight);
+    ctx.fillStyle='#000';ctx.fillRect(0,0,640,360);
+    ctx.drawImage(v,(640-v.videoWidth*sc)/2,(360-v.videoHeight*sc)/2,v.videoWidth*sc,v.videoHeight*sc);
+    c.toBlob(function(b){autoBlob=b;if(thumbMode==='auto')showThumb(URL.createObjectURL(b));URL.revokeObjectURL(v.src);},'image/jpeg',0.82);
+  });
+}
+
+function setThumbMode(m){
+  thumbMode=m;
+  document.getElementById('btnAuto').classList.toggle('active',m==='auto');
+  document.getElementById('btnCustom').classList.toggle('active',m==='custom');
+  if(m==='custom')document.getElementById('customThumbInput').click();
+  else if(autoBlob)showThumb(URL.createObjectURL(autoBlob));
+}
+document.getElementById('customThumbInput').addEventListener('change',function(e){
+  var f=e.target.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(ev){fetch(ev.target.result).then(function(res){return res.blob();}).then(function(b){customBlob=b;showThumb(ev.target.result);});};
+  r.readAsDataURL(f);
+});
+
+btn.addEventListener('click',async function(){
+  if(!videoFile)return;
+  var title=document.getElementById('titleInput').value.trim();
+  if(!title){document.getElementById('titleInput').focus();return;}
+  btn.disabled=true;
+  document.getElementById('progWrap').classList.add('show');
+  status('','');
+  try{
+    var user=await Auth.getUser();
+    if(!user){Auth.signInGoogle();return;}
+
+    prog('Uploading video...',5);
+    var result=await Uploader.upload(videoFile,function(loaded,total){
+      prog('Uploading: '+sz(loaded)+' / '+sz(total),5+Math.round(loaded/total*80));
+    });
+
+    prog('Saving...',87);
+    var rec=await DB.saveVideo({
+      title:title,
+      description:document.getElementById('descInput').value.trim(),
+      videoUrl:result.publicUrl,
+      fileSize:videoFile.size,
+      duration:videoDur,
+      userId:user.id,
+      storageKey:result.key,
+      category:document.getElementById('catInput').value
+    });
+
+    var tb=(thumbMode==='custom'&&customBlob)?customBlob:autoBlob;
+    if(tb){
+      prog('Uploading cover...',93);
+      try{var u=await DB.uploadThumbnail(rec.id,tb);await DB.updateVideo(rec.id,{thumbnail_url:u});}catch(e){console.warn('thumb:',e);}
+    }
+
+    prog('Done!',100);
+    status('Video published!','success');
+    btn.textContent='Open video';btn.disabled=false;
+    btn.onclick=function(){location.href='watch.html?v='+rec.id;};
+  }catch(e){
+    console.error(e);status('Error: '+e.message,'error');
+    btn.disabled=false;btn.textContent='Retry';
+  }
+});
+
+Auth.renderNavUser(document.querySelector('.navbar'));
+</script>
+</body>
+</html>

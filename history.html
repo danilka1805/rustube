@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>History - RusTube</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <nav class="navbar">
+    <a href="index.html" class="logo">&#9654; Rus<span>Tube</span></a>
+    <div class="search-wrap"></div>
+    <div class="nav-right">
+      <a href="index.html" class="btn btn-ghost btn-sm">&larr; Back</a>
+      <button id="authBtn" style="min-width:32px"></button>
+    </div>
+  </nav>
+</header>
+<main>
+  <div style="max-width:900px;margin:0 auto;padding:20px 16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+      <h1 style="font-size:1.4rem;font-weight:700">Watch history</h1>
+      <button class="btn btn-ghost btn-sm" id="clearBtn" onclick="clearAll()">Clear all</button>
+    </div>
+    <div id="histList"></div>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function ago(ts){var s=(Date.now()-ts)/1000;if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' h ago';if(s<604800)return Math.floor(s/86400)+' days ago';return new Date(ts).toLocaleDateString('ru-RU');}
+function fmtd(s){if(!s)return'';var m=Math.floor(s/60),sc=String(s%60).padStart(2,'0');return m>=60?Math.floor(m/60)+':'+String(m%60).padStart(2,'0')+':'+sc:m+':'+sc;}
+
+function render(){
+  var h=DB.getHistory();
+  var el=document.getElementById('histList');
+  document.getElementById('clearBtn').style.display=h.length?'inline-flex':'none';
+  if(!h.length){
+    el.innerHTML='<div class="empty-state"><div class="icon">&#128336;</div><h2>No history yet</h2><p>Videos you watch will appear here</p></div>';
+    return;
+  }
+  el.innerHTML=h.map(function(v){
+    var th=v.thumbnail_url?'<img style="width:120px;height:68px;object-fit:cover;border-radius:6px;flex-shrink:0" src="'+esc(v.thumbnail_url)+'" alt="">':'<div style="width:120px;height:68px;background:var(--bg3);border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:var(--text2)">&#9654;</div>';
+    return '<div style="display:flex;gap:12px;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px">'
+      +'<a href="watch.html?v='+esc(v.id)+'" style="display:contents">'+th+'</a>'
+      +'<div style="flex:1;min-width:0">'
+        +'<a href="watch.html?v='+esc(v.id)+'" style="font-weight:600;font-size:.9rem;display:block;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(v.title)+'</a>'
+        +'<div style="font-size:.76rem;color:var(--text2)">'+(v.duration?fmtd(v.duration)+' &middot; ':'')+ago(v.watched_at)+'</div>'
+      +'</div>'
+      +'<button onclick="removeOne(\''+esc(v.id)+'\')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.1rem;flex-shrink:0;padding:4px 8px" title="Remove">&#10005;</button>'
+    +'</div>';
+  }).join('');
+}
+
+function clearAll(){
+  if(!confirm('Clear all history?'))return;
+  DB.clearHistory();render();
+}
+
+function removeOne(id){
+  DB.removeFromHistory(id);render();
+}
+
+Auth.renderNavUser(document.querySelector('.navbar'));
+render();
+</script>
+</body>
+</html>

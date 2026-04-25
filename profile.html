@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Channel - RusTube</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <nav class="navbar">
+    <a href="index.html" class="logo">&#9654; Rus<span>Tube</span></a>
+    <div class="search-wrap"></div>
+    <div class="nav-right">
+      <a href="index.html" class="btn btn-ghost btn-sm">&larr; Back</a>
+      <button id="authBtn" style="min-width:32px"></button>
+    </div>
+  </nav>
+</header>
+<main>
+<div class="profile-page" id="profilePage">
+  <div id="notLoggedIn" class="sign-in-wall" style="display:none">
+    <div class="icon">&#128100;</div>
+    <h2>Sign in to access your channel</h2>
+    <p>You need a Google account to manage your channel.</p>
+    <button class="btn btn-primary" onclick="Auth.signInGoogle()">Sign in with Google</button>
+  </div>
+
+  <div id="loggedIn" style="display:none">
+    <div class="profile-header">
+      <div class="profile-avatar-wrap" onclick="document.getElementById('avatarInput').click()" title="Change photo">
+        <div class="profile-avatar" id="profileAvatar">?</div>
+        <div class="profile-avatar-edit">&#9998;</div>
+        <input type="file" id="avatarInput" accept="image/*" style="display:none">
+      </div>
+      <div>
+        <div class="profile-name" id="profileName">Loading...</div>
+        <div class="profile-sub" id="profileSub"></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('settings')" id="tabSettings">Settings</div>
+      <div class="tab" onclick="showTab('videos')" id="tabVideos">My Videos</div>
+      <div class="tab" onclick="location.href='history.html'" id="tabHistory">History</div>
+    </div>
+
+    <div id="paneSettings">
+      <div class="form-group">
+        <label>Channel name</label>
+        <input type="text" id="inputUsername" placeholder="Your channel name" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>About</label>
+        <textarea id="inputBio" placeholder="Tell viewers about your channel" maxlength="300"></textarea>
+      </div>
+      <div class="status-box" id="saveStatus"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="saveBtn" onclick="saveProfile()">Save</button>
+        <button class="btn btn-ghost" onclick="Auth.signOut()">Sign out</button>
+      </div>
+    </div>
+
+    <div id="paneVideos" style="display:none">
+      <div id="videosList"><p style="color:var(--text2);font-size:.88rem">Loading...</p></div>
+    </div>
+  </div>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script>
+var currentUser=null;
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function ago(d){var s=(Date.now()-new Date(d))/1000;if(s<3600)return Math.floor(s/60)+' min ago';if(s<86400)return Math.floor(s/3600)+' h ago';return new Date(d).toLocaleDateString('ru-RU');}
+
+function showTab(name){
+  document.getElementById('paneSettings').style.display=name==='settings'?'block':'none';
+  document.getElementById('paneVideos').style.display=name==='videos'?'block':'none';
+  document.getElementById('tabSettings').classList.toggle('active',name==='settings');
+  document.getElementById('tabVideos').classList.toggle('active',name==='videos');
+  if(name==='videos')loadMyVideos();
+}
+
+async function init(){
+  var user=await Auth.getUser();
+  if(!user){document.getElementById('notLoggedIn').style.display='block';return;}
+  currentUser=user;
+  document.getElementById('loggedIn').style.display='block';
+
+  var profile=await Auth.getProfile(user.id);
+  var name=(profile&&profile.username)?profile.username:(user.user_metadata&&user.user_metadata.full_name?user.user_metadata.full_name:'');
+  var avatar=(profile&&profile.avatar_url)?profile.avatar_url:(user.user_metadata&&user.user_metadata.avatar_url?user.user_metadata.avatar_url:'');
+
+  document.getElementById('profileName').textContent=name||'My Channel';
+  document.getElementById('profileSub').textContent=user.email||'';
+  document.getElementById('inputUsername').value=name;
+  document.getElementById('inputBio').value=(profile&&profile.bio)?profile.bio:'';
+
+  var av=document.getElementById('profileAvatar');
+  if(avatar){av.innerHTML='<img src="'+avatar+'" style="width:90px;height:90px;border-radius:50%;object-fit:cover">';}
+  else{av.textContent=name?name[0].toUpperCase():'?';}
+
+  Auth.renderNavUser(document.querySelector('.navbar'));
+}
+
+async function saveProfile(){
+  var btn=document.getElementById('saveBtn');
+  btn.disabled=true;btn.textContent='Saving...';
+  var st=document.getElementById('saveStatus');
+  try{
+    await Auth.upsertProfile(currentUser.id,{
+      username:document.getElementById('inputUsername').value.trim(),
+      bio:document.getElementById('inputBio').value.trim()
+    });
+    document.getElementById('profileName').textContent=document.getElementById('inputUsername').value.trim()||'My Channel';
+    st.textContent='Saved!';st.className='status-box show success';
+    setTimeout(function(){st.className='status-box';},2500);
+  }catch(e){st.textContent='Error: '+e.message;st.className='status-box show error';}
+  btn.disabled=false;btn.textContent='Save';
+}
+
+document.getElementById('avatarInput').addEventListener('change',async function(e){
+  var f=e.target.files[0];if(!f)return;
+  var reader=new FileReader();
+  reader.onload=async function(ev){
+    var blob=await(await fetch(ev.target.result)).blob();
+    try{
+      var name='avatars/'+currentUser.id+'.jpg';
+      var up=await getSB().storage.from(THUMB_BUCKET).upload(name,blob,{contentType:'image/jpeg',upsert:true});
+      if(up.error)throw up.error;
+      var url=getSB().storage.from(THUMB_BUCKET).getPublicUrl(name).data.publicUrl;
+      await Auth.upsertProfile(currentUser.id,{avatar_url:url});
+      document.getElementById('profileAvatar').innerHTML='<img src="'+url+'" style="width:90px;height:90px;border-radius:50%;object-fit:cover">';
+    }catch(e){alert('Error uploading avatar: '+e.message);}
+  };
+  reader.readAsDataURL(f);
+});
+
+async function loadMyVideos(){
+  var el=document.getElementById('videosList');
+  el.innerHTML='<p style="color:var(--text2);font-size:.88rem">Loading...</p>';
+  try{
+    var vs=await DB.getUserVideos(currentUser.id);
+    if(!vs.length){el.innerHTML='<p style="color:var(--text2);font-size:.88rem">No videos yet. <a href="upload.html" style="color:var(--accent)">Upload first video</a></p>';return;}
+    el.innerHTML=vs.map(function(v){
+      var th=v.thumbnail_url?'<img style="width:96px;height:54px;object-fit:cover;border-radius:6px" src="'+esc(v.thumbnail_url)+'" alt="">':'<div class="video-manage-thumb"></div>';
+      return '<div class="video-manage-card" id="vc_'+v.id+'">'+th
+        +'<div class="video-manage-info"><div class="video-manage-title">'+esc(v.title)+'</div><div class="video-manage-meta">'+(v.views||0)+' views &middot; '+ago(v.created_at)+'</div></div>'
+        +'<div class="video-manage-actions"><a href="watch.html?v='+v.id+'" class="btn btn-ghost btn-sm">Watch</a><button class="btn btn-danger btn-sm" onclick="delVideo(\''+v.id+'\',\''+esc(v.storage_key||'')+'\')">Delete</button></div>'
+      +'</div>';
+    }).join('');
+  }catch(e){el.innerHTML='<p style="color:var(--text2)">Error: '+esc(e.message)+'</p>';}
+}
+
+async function delVideo(id,key){
+  if(!confirm('Delete this video? Cannot be undone.'))return;
+  try{await DB.deleteVideo(id,key||null);var el=document.getElementById('vc_'+id);if(el)el.remove();}
+  catch(e){alert('Error: '+e.message);}
+}
+
+init();
+</script>
+</body>
+</html>
